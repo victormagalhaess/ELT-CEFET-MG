@@ -1,0 +1,389 @@
+// Programa exemplo de assembly condicional
+// São apresentadas duas versões para as rotinas que controlam o módulo display
+// LCD 16x2
+
+
+#include "msp430.h"                              ; #define controlled include file
+
+           NAME    main                          ; module name
+          
+           PUBLIC  main                          ; make the main label vissible
+                                                 ; outside this module
+           ORG     0FFFEh                 
+           DC16    init                          ; set reset vector to 'init' label
+                                          
+           org     1000h                         ; bloco da flash para armazenar constantes
+ola:       DB      "Comand Board"                ; conhecida como memória INFO
+txt:       DB      "Frequency Invert"      
+                                          
+           RSEG    CSTACK                        ; pre-declaration of segment
+           RSEG    CODE                          ; place program in 'CODE' segment
+                                          
+init:      MOV     #SFE(CSTACK), SP              ; set up stack
+                                          
+main:      NOP                                   ; main program
+           MOV.W   #WDTPW+WDTHOLD,&WDTCTL        ; Stop watchdog timer
+                                          
+           Call    #ConfigIO                     ; Configura todos os bits das portas de IO
+           call    #ConfigLCD
+        
+// Sequencia de inicialização do display
+           mov     #ola,R11
+           call    #EnviaString
+           mov     #0xC0,R10                     ; muda para 2a linha
+           call    #EnviaComando        
+           mov     #txt,R11
+           call    #EnviaString        
+           
+           JMP $                                 ; jump to current location '$'
+                                                 ; (endless loop)
+                                        
+                                        
+/////////////////////////////////////////////////////////////////////////                                        
+// Subrotinas para o display LCD
+
+// Há duas possibilidades de interface entre o display e o microcontrolador:
+// 4 ou 8 bits.
+// A conexão em 8 bits é a mais simples e o envio da informação é feito em 
+// apenas uma etapa. Já a conexão em 4 bits, demandará a utilização dos 4 bits
+// superiores do display (D7...D4) e o envio deve ser feito em duas etapas: os 
+// 4 bits superiores primeiro e depois os 4 bits inferiores.
+
+/* A intenção é criar um conjunto de subrotinas que sejam compiladas de acordo
+com o processador selecionado. Para tal vamos utilizar alguns comandos
+direcionados ao assembler que permitem implementar o que é conhecido como
+assembly condicional.
+
+Veja o exemplo abaixo de como vamos estruturar esta montagem condicional do 
+código.
+
+#if defined (__MSP430F1611__)
+// Digite aqui as rotinas específicas para o kit do laboratório
+
+#elif defined (__MSP430G2553__)
+// Digite aqui as rotinas específicas para o seu kit com o G2553
+
+#else
+#error "****** Voce esqueceu de selecionar o processador adequado. *****"
+#endif
+*/
+
+
+// Defines comuns às duas versões de kits
+// opçoes para o bit RS do display LCD
+#define Dado 1                                   // Envio de dados 
+#define Comando 0                                // Envio de comandos
+
+
+#if defined (__MSP430F1611__)
+// Digite aqui as rotinas específicas para o kit do laboratório
+// Dando nomes mais interessantes para os bits das portas P2, P3 e P5
+// Porta P2 - conexõeos com o teclado
+#define TecCol       P2OUT                       // As colunas do teclado estão conectadas 
+#define TecCol_dir   P2DIR                       // na porta P2  
+#define TecCol_sel   P2SEL        
+#define TecC0        BIT0                        // Cada uma das colunas do teclado
+#define TecC1        BIT1
+#define TecC2        BIT2
+
+// Porta P3 - conexões com o teclado
+#define TecLin       P3OUT                       // As linhas do teclado estão conectadas na
+#define TecLin_dir   P3DIR                       // porta P3
+#define TecLin_sel   P3SEL                                                                                
+#define TecL0        BIT0                        // Cada uma das linhas do teclado
+#define TecL1        BIT1
+#define TecL2        BIT2
+#define TecL3        BIT3
+
+// Porta P3 - conexões com o display
+#define LCDCtl       P3OUT                       // Os bit En e RS estão conecetados na 
+#define LCDCtl_dir   P3DIR                       // porta P3
+#define LCDCtl_sel   P3SEL        
+#define LCDEn        BIT6                        // Enable  = Bit de controle do LCD
+#define LCDRS        BIT7                        
+
+// Porta P5 - conexões com o LCD 
+#define LCDPort      P5OUT                       // Os bits de dados do LCD estão conectados
+#define LCDPort_dir  P5DIR                       // na porta P5
+#define LCDPort_sel  P5SEL
+#define LCDData      0xFF                        // O barramento de 8 bits do display utiliza
+                                                 // toda a porta P5
+                                                 
+// Primeira palavra de configuração do display LCD para o kit F1611
+#define LCD_DL       BIT4                        // BIT4 = DL, 1 = barramento de 8 bits, 0 = 4 bits
+#define LCD_N        BIT3                        // BIT3 = N, 1 = 2 linhas, 0 = 1 linha
+#define LCD_F        0                           // BIT2 = f, 1 = matriz 5x10, 0 = matriz 5x8
+                                                 
+// Subrotina para o display LCD - Conexão de 8bits
+// Nome: Envia
+// Funnção: envia um byte para ser exibido no display, que deve corresponder
+//          a um dos códigos da tabela ASCII
+//          Utiliza a conexão de 8 bits com o display através dos oito bits da 
+//          porta P5
+// Parâmetros:
+//    Entrada: R10 contem o caracter a ser enviado
+//    Saída: caracter exibido no display LCD
+Envia: 
+           mov.b     R10,       &LCDPort         ; Copia o caractere para o barramento de 
+                                                 ; dados do LCD 
+           bic.b     #LCDEn,    &LCDCtl          ; faz enable = 0
+           bis.b     #LCDEn,    &LCDCtl          ; faz enable = 1
+           bic.b     #LCDEn,    &LCDCtl          ; faz enable = 0
+           ret
+
+
+#elif defined (__MSP430G2553__)
+// Digite aqui as rotinas específicas para o seu kit com o G2553
+
+// Dando nomes mais interessantes para os bits das portas P1 e P2
+// Porta P1 - conexões com o LCD 
+#define LCDPort      P1OUT                       // Os bits de dados do LCD estão conectados
+#define LCDPort_dir  P1DIR                       // na porta P1
+#define LCDPort_sel  P1SEL
+#define LCDData      (BIT4+BIT5+BIT6+BIT7)       // Barramento de 4 bits do display
+
+// Porta P1 - conexõeos com o teclado
+#define LedVm        BIT0                        // Leds que já vêm montado no kit
+#define LedVd        BIT1
+#define ChS2         BIT3                        // Micro chave que já vem montada no kit
+              
+#define TecLin       P1OUT                       // As linhas do teclado estão conectadas na
+#define TecLin_dir   P1DIR                       // porta P1
+#define TecLin_sel   P1SEL                                                                                
+#define TecL1        BIT4                        // Cada uma das linhas do teclado
+#define TecL2        BIT5
+#define TecL3        BIT6
+#define TecL4        BIT7
+
+// Porta P2
+#define LCDCtl       P2OUT                       // Os bit En e RS estão conecetados na 
+#define LCDCtl_dir   P2DIR                       // porta P2
+#define LCDCtl_sel   P2SEL        
+#define LCDEn        BIT1                        // Enable  = Bit de controle do LCD
+#define LCDRS        BIT0                        // Este bit é compartilhado com a coluna 1
+                                                 // do teclado e o pino RS do LCD. Como
+                                                 // coluna deve ser uma entrada e como RS
+                                                 // deve ser uma saída. Cada um das rotinas 
+                                                 // de teclado e display devem fazer a
+                                                 // configuração adequada do bit
+#define TecCol       P2OUT                       // As colunas do teclado estão conectadas 
+#define TecCol_dir   P2DIR                       // na porta P2  
+#define TecCol_sel   P2SEL        
+#define TecC1        BIT0                        // Cada uma das colunas do teclado
+#define TecC2        BIT5
+#define TecC3        BIT6
+#define TecC4        BIT7
+
+// Primeira palavra de configuração do display LCD para o kit LaunchPad
+#define LCD_DL       0                           // BIT4 = DL, 1 = barramento de 8 bits, 0 = 4 bits
+#define LCD_N        BIT3                        // BIT3 = N, 1 = 2 linhas, 0 = 1 linha
+#define LCD_F        0                           // BIT2 = f, 1 = matriz 5x10, 0 = matriz 5x8
+
+// Subrotina para o display LCD - Conexão de 4bits
+// Nome: Envia
+// Funnção: envia um byte para ser exibido no display, que deve corresponder
+//          a um dos códigos da tabela ASCII
+//          Utiliza a conexão de 4 bits com o display, sendo:
+//          D7 = P1.7
+//          D6 = P1.6
+//          D5 = P1.5
+//          D4 = P1.4
+// Parâmetros:
+//    Entrada: R10 contem o caracter a ser enviado
+//    Saída: caracter exibido no display LCD
+Envia: 
+           push      R11
+           push      R12                                        
+           mov       R10,R12                     ; salva o caracter      
+           mov.b     &LCDPort,  R11              ; lê o conteúdo atual de LCDPort
+           bic.b     #0F0h,     R11              ; mantem apenas o nibble inferior de LCDPort
+           bic.b     #0Fh,      R12              ; mantem apenas o níbble superior do caractere
+           add.b     R11,       R12              ; monta o nibble inferior de LCDPort com o niblle
+           mov.b     R12,       &LCDPort         ; superior do caractere                                      
+           bic.b     #LCDEn,    &LCDCtl          ; faz enable = 0
+           bis.b     #LCDEn,    &LCDCtl          ; faz enable = 1
+           bic.b     #LCDEn,    &LCDCtl          ; faz enable = 0
+           
+           mov       R10,       R12              ; recupera o caracter
+           bic.b     #0F0h,     R12              ; mantem apenas o nibble inferior do caracter
+           rla       R12                         ; desloca o nibble inferior do caractere
+           rla       R12                         ; para o nibble superior
+           rla       R12
+           rla       R12
+           mov.b     &LCDPort,  R11               ; lê o conteúdo atual de LCDPort
+           bic.b     #0F0h,     R11               ; mantem apenas o nibble inferior de LCDPort
+           add.b     R11,       R12               ; monta o nibble superior de LCDPort com o niblle
+           mov.b     R12,       &LCDPort          ; inferior do caracter                                        
+           bic.b     #LCDEn,    &LCDCtl           ; faz enable = 0
+           bis.b     #LCDEn,    &LCDCtl           ; faz enable = 1
+           bic.b     #LCDEn,    &LCDCtl           ; faz enable = 0
+           pop       R12
+           pop       R11
+           ret
+
+           
+#else
+#error "****** Voce se esqueceu de selecionar o processador adequado. *****"
+#endif
+
+// Subrotinas comuns a ambos os kits
+// Nome: ConfigIO
+// Configura as portas E/S conectadas ao display LCD e ao teclado
+// Parâmetros: sem parâmetros
+ConfigIO:
+           bis.b     #LCDData,&LCDPort_dir       ; Configura como saída os 4 bits compartilhados
+                                                 ; entre as linhas do teclado e o barramento de
+                                                 ; dados do LCD
+           bis.b     #(LCDRS+LCDEn),&LCDCtl_dir  ; Configura como saída os bits do LCD En e RS      
+           bic.b     #(LCDRS+LCDEn),&LCDCtl      ; inicializa RS e En em nível zero
+           // A configuração das portas conectadas ao teclado ainda não foram feitas
+           ret
+                     
+// Nome: ConfigLCD
+// Envia os comandos de inicializaçãO para o display LCD
+// Pfarâmetros: sem parâmetros
+ConfigLCD:
+           push    R10
+           mov     #(BIT5+LCD_DL+LCD_N+LCD_F),R10               ; DL = num. de bits do barramento, 
+           call    #EnviaComando                                ; N = num. de linhas visíveis
+           call    #Delay5ms                                    ; F = formato da matriz dos caracteres
+           mov     #0x0E,R10
+           call    #EnviaComando
+           mov     #0x06,R10
+           call    #EnviaComando
+           mov     #0x01,R10
+           call    #EnviaComando        
+           call    #Delay2ms
+           pop     R10
+           ret
+
+// Nome: EnviaDado
+// Função: envia um byte que deve corresponder a um dos código da tabela ASCII
+//          Para trabalhar de forma casada, utilizar a subrotina Envia.
+//          O bit de controle RS é levado a '1' para sinalizar DADO
+// Parâmetros:
+//    Entrada: R10 contem o caracter a ser enviado
+//    Saída: o caracter será exibido no display
+EnviaDado:         
+           bis.b   #LCDRS,&LCDCtl                ; faz RS=1=dado             
+           call    #Envia                        ; subrotina queefetivamente envia o dado
+                                                 ; para o display
+           call    #Delay100us                   ; tempo de espera para o display 
+           ret                                   ; processar a função
+
+// Nome: EnviaComando
+// Função: envia um byte que atuará no configuração do display
+//         O bit de controle RS é levado a '0' para sinalizar COMANDO
+// Parâmetros:
+//    Entrada: R10 contem o caracter a ser enviado
+//    Saída: configuração do display
+EnviaComando:         
+           bic.b   #LCDRS,&LCDCtl                ; faz RS=0=comando           
+           call    #Envia                        ; subrotina que efetivamente envia o comando
+                                                 ; para o display
+           call    #Delay100us                   ; tempo de espera para o display 
+           ret                                   ; processar a função
+
+// Nome: EnviaString
+// Função: envia uma string de caracteres para o display LCD. Fica em loop até
+//         encontrar o 00h, no final da string (null terminated string)
+// Parâmetros:
+//    Entrada: R11 contem o endereço inicial da string 
+//    Saída: o display exibe a string
+EnviaString:
+      push      R11
+LoopStr:  
+      cmp.b     #0,0(R11)               ; teste se já chegou ao fim da string
+      jz        FimStr
+      mov.b     @R11,R10
+      call      #EnviaDado
+      inc       R11
+      jmp       LoopStr
+FimStr:   
+      pop       R11
+      ret
+
+      
+// Nome: Delay
+// Função: atraso calculado em função de R11 e R12
+//         R11 é o ajuste grosso (Y) e 
+//         R12 é o ajuste fino (X)
+//         A equação do número de estados é:
+//
+//         T = 3XY + 4Y + 18
+//
+//         A freq. de clock inicial do F2553 é de aprox. 1,2 MHz
+//
+// Parâmetros:
+//    Entrada: R11 (Y) é ajuste grosso e R12 (X) é o ajuste fino
+//    Saída: não tem
+Delay:
+       push      R11       ;(3)
+       push      R13       ;(3)
+Loop2: mov       R12,R13   ;(1)               ; salva o ajuste fino (X)
+Loop1: dec       R13       ;(1)
+       jnz       Loop1     ;(2)     
+       dec       R11       ;(1)
+       jnz       Loop2     ;(2)
+       pop       R13       ;(2)
+       pop       R11       ;(2)
+       ret                 ;(3) 
+       
+// Nome: Delay100us
+// Função: atraso de 100 us 
+//         A subrotina adiciona 20 ciclos a equação da subrotina Delay
+//         Para 100 us, com clock de 1,2 MHz, são necessários 120 ciclos.
+//         Os parâmetros X e Y foram calculados para T = 100
+//         Y = 1 e X = 26
+// Parâmetros:
+//    Entrada: não tem
+//    Saída: não tem
+Delay100us:
+      push      R11       ;(3)
+      push      R12       ;(3)
+      mov       #1,R11    ;(1)
+      mov       #26,R12   ;(1)      
+      call      #Delay    ;(5) 
+      pop       R12       ;(2)
+      pop       R11       ;(2)
+      ret                 ;(3)
+
+// Nome: Delay2ms
+// Função: atraso de 2 ms 
+//         A subrotina adiciona 20 ciclos a equação da subrotina Delay
+//         Para 2ms, com clock de 1,2 MHz, são necessários 2400 ciclos.
+//         Os parâmetros X e Y foram calculados para T = 2380
+//         Y = 1 e Y = 786
+// Parâmetros:
+//    Entrada: não tem
+//    Saída: não tem
+Delay2ms:
+      push      R11       ;(3)
+      push      R12       ;(3)
+      mov       #1,R11    ;(1)
+      mov       #786,R12  ;(1)      
+      call      #Delay    ;(5) 
+      pop       R12       ;(2)
+      pop       R11       ;(2)
+      ret                 ;(3)
+
+// Nome: Delay5ms
+// Função: atraso de 5 ms 
+//         A subrotina adiciona 20 ciclos a equação da subrotina Delay
+//         Para 5ms, com clock de 1,2 MHz, são necessários 6000 ciclos.
+//         Os parâmetros X e Y foram calculados para T = 5980
+//         Y = 1 e Y = 1986
+// Parâmetros:
+//    Entrada: não tem
+//    Saída: não tem
+Delay5ms:
+      push      R11       ;(3)
+      push      R12       ;(3)
+      mov       #1,R11    ;(1)
+      mov       #1986,R12 ;(1)      
+      call      #Delay    ;(5) 
+      pop       R12       ;(2)
+      pop       R11       ;(2)
+      ret                 ;(3)      
+
+      END

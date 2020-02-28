@@ -1,0 +1,71 @@
+#include "msp430.h"					; #define controlled include file
+      NAME	main					; module name
+      PUBLIC 	main					; make the main label visible
+      ; outside this module
+      ORG	0FFFEh
+      DC16	init					; set reset vector to 'init' label
+      ORG	0FFE8h					; carregar o endereço da RTI (TRATA_
+      DC16	TRATA_INTERRUPCAO			; INTERRUPCAO) no vetor de interrupção.
+      RSEG	CSTACK					; pre-declaration of segment
+      RSEG	CODE					; place program in 'CODE' segment
+init:	        
+      MOV	#SFE(CSTACK), SP			; set up stack
+main:	
+      MOV.W	#WDTPW+WDTHOLD,&WDTCTL	; Stop watchdog timer
+      MOV.B	#0xF0,P1DIR		; programar os quatro bits mais significativos
+                                        ; da porta 1 como saída e os 4 menos 
+                                        ;significativos como entrada
+      BIC.B	#0x01,P1IES	        ; estabelecer borda de subida no										; bit 0 da porta 1
+      BIS.B	#0x01,P1IE	        ; habilitar interrupção do bit 0 da
+                                        ; da porta 1
+      EINT			        ; habilitar interrupção geral
+repete:
+      CALL	#PISCA_LED
+      JMP	repete
+
+    ;*********************************************************************************************************
+    ;Subrotina: PISCA_LED
+    ;Descrição: Faz um led conectado na porta P1.4 piscar na frequência de 5 Hz
+    ;Entrada:		 -
+    ;Saída:		 -
+    ;*********************************************************************************************************
+PISCA_LED:
+      BIS.B       #0x10, P1OUT
+      MOV         #12500, R5
+      MOV         #2, R6
+      CALL        #delay
+      BIC.B       #0x10, P1OUT
+      MOV         #12500, R5
+      MOV         #2, R6
+      CALL        #delay
+    RET
+
+  ;DELAY==========================================================================
+delay:  PUSH R7                         
+          PUSH R6   
+          
+loop2:  MOV     R5, R7                  ; Valor de X é copiado para R7
+loop1:  DEC     R7
+        JNZ     loop1                   ; Temporização 1
+        DEC     R6
+        JNZ     loop2                   ; Temporização 2
+          
+        POP     R6                      
+        POP     R7                      
+        RET     
+  ;===============================================================================    
+
+    ;*********************************************************************************************************
+    ;Subrotina: TRATA_INTERRUPCAO
+    ;Descrição: Inverte o estado do led ligado na porta P1.5
+    ;Entrada:		 -
+    ;Saída:		 -
+    ;*********************************************************************************************************
+TRATA_INTERRUPCAO:
+    XOR.B	#0x20, P1OUT 			;inverte o estado do led
+    MOV         #2000, R5
+    MOV         #1, R6
+    CALL        #delay
+    BIC.B	#0x01,P1IFG			; reseta flag de interrupção
+    RETI
+    END

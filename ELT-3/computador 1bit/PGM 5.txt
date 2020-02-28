@@ -1,0 +1,18 @@
+END     OPCODE       LABEL         INSTR.         COMENT.
+
+0h       41h                       set             
+1h       48h                       out            ; inicialização
+2h       42h                       inp
+3h       25h                       jz 02h         ; loop que aguarda o pulso
+4h       40h                       clr
+5h       20h                       out            ; coloca a saída em nível baixo
+6h       40h                       noop
+7h       20h                       noop
+8h       40h                       noop
+9h       20h                       noop
+Ah       40h                       noop
+Bh       20h                       noop
+Ch       40h                       noop
+Dh       20h                       noop
+Eh       40h                       noop           ; deixa em nível baixo pelo maior tempo possível
+Fh       04h                       jp 00h         ; faz o loop infinito do programa

@@ -1,0 +1,16 @@
+
+
+END     OPCODE    LABEL       INSTR.         COMENT.
+
+0h       42h                    clr
+1h       48h                    out           ; inicialização
+2h       47h                    inp      
+3h       25h                    jz, 02h       ; loop até a porta abrir
+4h       43h                    cpl
+5h       48h                    out
+6h       44h                    jp, 04h       ; loop infinito que toca o alarme
+
+
+
+
+VICTOR HUGO FARIA DIAS MAGALHÃES

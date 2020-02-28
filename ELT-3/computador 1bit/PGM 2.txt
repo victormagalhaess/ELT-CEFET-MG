@@ -1,0 +1,15 @@
+
+
+END     OPCODE    LABEL      INSTR.         COMENT.
+
+0h      42h                  clr
+1h      48h                  out            ; inicialização
+2h      43h                  cpl            
+3h      48h                  out
+4h      24h                  jp, 02h        ; loop infinito: oscila a saída
+
+
+
+
+	 VICTOR HUGO FARIA DIAS MAGALHÃES
+

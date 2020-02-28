@@ -1,0 +1,506 @@
+; SENHA COM DISPLAY LCD+TECLADO V1.0 26/08/2018 
+; VICTOR HUGO FARIA, JONAS JOSÉ DIAS, MATHEUS HENRIQUE ARAÚJO
+; ELT-3A 2018
+; PROFESSOR: JOEL AUGUSTO
+; DISCIPLINA: SISTEMAS MICROPROCESSADOS
+; PROCESSADOR:MSP430F1611
+; VERSÃO DO IAR: 5.6.02
+;
+; OBJETIVOS: FAZER UM SISTEMA CAPAZ DE LER UMA SENHA DE UM TECLADO MATRICIAL
+; COMPARAR COM A SENHA MESTRA NA MEMÓRIA E ACIONAR O BIT-0 DE P1OUT CASO A SENHA
+; SEJA CORRETA. CASO SEJA INCORRETA RESETAR A LEITURA. ALÉM DISSO, UM LED 
+; DEVE PISCAR PARA INDICAR FUNCIONAMENTO. A LEITURA SERÁ FEITA UTILIZANDO 
+; INTERRPÇÕES DA PORTA P2
+
+#include "msp430.h"                     ; #define controlled include file
+
+        NAME    main                    ; module name
+
+        PUBLIC  main                    ; make the main label vissible
+                                        ; outside this module
+        ORG     0FFFEh
+        DC16    init                    ; set reset vector to 'init' label
+        
+        ORG	0FFE6h	   ;seta o vetor de interrupção de P2 ao label "teclado"
+        DC16	teclado	
+
+        
+        org     1000h                   ;Cria strings no endereço 1000h
+Frase1: DB      "1616"                  ;Salva a senha definida (1616)        
+Frase2: DB      "SENHA:"		;Salva uma string que será enviada
+Char1:  DB      "*"                 ;Salva o char que aparece ocultando a senha
+Frase3: DB      "SENHA CORRETA"         ;String de senha correta
+Frase4: DB      "Errou bobinho"         ;String de senha incorreta
+
+
+
+        RSEG    CSTACK                  ; pre-declaration of segment
+        RSEG    CODE                    ; place program in 'CODE' segment
+         
+ init:  MOV     #SFE(CSTACK), SP        ; set up stack
+
+
+/* Função PRINCIPAL:
+AUTORES: VICTOR HUGO, JONAS JOSÉ E MATHEUS HENRIQUE
+ESSA FUNÇÃO FUNCIONA COMO UMA FUNÇÃO GERAL DO PROGRAMA, TODAS AS SUBFUNÇÕES 
+OPERAM DE ACORDO COMO SÃO CHAMADAS
+NA FUNÇÃO PRINCIPAL (SALVO A INTERRUPÇÃO)
+ELA NÃO RECEBE NENHUM PARÂMETRO
+ELA NÃO RETORNA NENHUM PARÂMETRO*/
+
+main:   NOP                             ; main program
+        MOV.W   #WDTPW+WDTHOLD,&WDTCTL  ; Stop watchdog timer
+        
+        call #configIO                  ; realiza a configuração dos IOS
+        call #configLCD			; realiza a configuração do LCD
+        call #configCOD                 ; seta registradores e escreve o estado
+                                        ; inicial do sistema
+        
+        
+loop1:                                  ; loop principal
+
+        call #piscaLED
+              
+        
+        JMP loop1			
+        
+        
+/* Função de CONFIGURAÇÃO INICIAL dos IOS:
+AUTORES: VICTOR HUGO, JONAS JOSÉ E MATHEUS HENRIQUE
+ESSA FUNÇÃO FUNCIONA COMO UMA FUNÇÃO DE CONFIGURAÇÃO INICIAL DOS IOS :
+ELA NÃO RECEBE PARÂMETROS
+ELA RETORNA AS MODIFICAÇÕES EM 
+P1: DIR, SEL
+P2: DIR, SEL, IE, IES
+P3: DIR, SEL, OUT
+P5: DIR, SEL*/        
+configIO:   
+   
+        mov.b  #0xFF, P5DIR
+        BIS.b  #0xCF, P3DIR		
+        bic.b  #0xFF, P5SEL
+        bic.b  #0xCF, P3SEL		; configura as portas
+        BIS.B  #0X0F, P3OUT
+        mov.b  #0xFF, P1DIR
+        MOV.B  #0X00, P1SEL
+        MOV.B  #0XF8, P2DIR
+        MOV.B  #0X00, P2SEL 
+        BIC.B	#(BIT0+BIT1+BIT2),P2IES	        										
+        BIS.B	#(BIT0+BIT1+BIT2),P2IE		    
+        EINT				; habilitar interrupção geral
+        
+        RET
+
+
+/* Função de CONFIGURAÇÃO INICIAL do LCD:
+AUTORES: VICTOR HUGO, JONAS JOSÉ E MATHEUS HENRIQUE
+ESSA FUNÇÃO FUNCIONA COMO UMA FUNÇÃO DE CONFIGURAÇÃO INICIAL DOS DISPLAYS :
+ELA USA DELAYS E DADOS INICIAIS PARA QUE O DISPLAY CONSIGA OPERAR DA MANEIRA 
+DESEJADA
+ELA NÃO RECEBE PARÂMETROS
+ELA NÃO RETORNA NENHUM PARÂMETRO*/
+
+configLCD: 
+
+	push R7
+        push R4
+        push R6				;Salva o contexto
+        
+	mov.b #0x38, R7
+        call #EnviaComando		;Envia 0x38
+        
+	mov.w #0xF9, R4			;Chama delay 5ms
+        mov.b #5, R6
+        call #Delay
+        
+        mov.b #0x0E, R7			;Envia 0x0E
+        call #EnviaComando
+       
+        mov.b #0x06, R7			;Envia 0x06
+        call #EnviaComando
+        
+        mov.b #0x01, R7			;Envia 0x01-Limpa Display
+        call #EnviaComando
+        
+	mov.w #0x98, R4			;Chama delay 2ms
+        mov.b #153, R6
+        call #Delay
+        
+	pop R6
+        pop R4
+        pop R7				;Retorna o contexto
+        RET
+        
+/* Função de CONFIGURAÇÃO INICIAL do SISTEMA:
+AUTORES: VICTOR HUGO, JONAS JOSÉ E MATHEUS HENRIQUE
+ESSA FUNÇÃO FUNCIONA COMO UMA FUNÇÃO DE CONFIGURAÇÃO INICIAL DO SISTEMA :
+ELA COLOCA ENDEREÇOS INICIAIS NOS REGISTRADORES PARA QUE O SISTEMA OPERE 
+CORRETAMENTE
+ELA ESCREVE "SENHA:" E PULA A LINHA PARA QUE O PROGRAMA CONTINUE A FUNCIONAR
+ELA NÃO RECEBE PARÂMETROS
+ELA RETORNA:
+O ENDEREÇO DA SENHA LIDA (1050H) EM R12 E R13
+O ENDEREÇO DA SENHA MESTRE (1000H)
+O VALOR 0 EM R11 (QUE OPERA COMO CONTADOR DE TECLAS PRESSIONADAS)
+*/
+
+configCOD:
+        PUSH R10
+        call #limpa
+        mov #Frase2,R10			
+        call #EnviaString		
+        CALL #Pulalinha
+        MOV #1050h, R12
+        mov #1050h, r13
+        mov #1000h, r14
+        mov #0,    r11
+        POP R10
+        ret
+
+
+/* Função de ENVIAR:
+AUTORES: VICTOR HUGO, JONAS JOSÉ E MATHEUS HENRIQUE
+ESSA FUNÇÃO FUNCIONA COMO UMA FUNÇÃO DE ENVIAR GERAR OS COMANDOS PARA OS DADOS
+E COMANDOS SEREM ENVIADOS:
+ELA RECEBE COMO PARÂMETROS R4(Y PARA FUNÇÃO DELAY CHAMADA DENTRO DELA) E 
+R6(X PARA FUNÇÃO DELAY CHAMADA DENTRO DELA)
+ELA RETORNA O RESULTADO DA PRODUÇÃO DE UMA BORDA DE SUBIDA EM BIT6 DE P3OUT*/  
+ 
+ Envia: 
+        PUSH R4
+        PUSH R6
+	bic.b #0x40,  P3OUT ; reseta o bit P3.6 para E=0
+        bis.b #0x40,  P3OUT ; seta o bit P3.6 para E=1
+        bic.b #0x40,  P3OUT ; reseta o bit P3.6 para E=0
+        mov.b #10,    R4    ; inicia delay 100us
+        mov.b #2,     R6
+        call #Delay
+        POP R6
+        POP R4
+        RET
+
+
+
+
+
+/* Função de Delay:
+AUTORES: VICTOR HUGO, JONAS JOSÉ E MATHEUS HENRIQUE
+ESSA FUNÇÃO FUNCIONA COMO UMA FUNÇÃO DE DELAY, E O TEMPO  É DADO PELA EQUAÇÃO:
+3xy+ 5y+ 2= tempo/1,333us
+ELA RECEBE COMO PARÂMETROS R6(Y) E R4(X)
+ELA NÃO RETORNA NENHUM PARÂMETRO*/
+
+ 
+Delay:  
+	push R5 ; Registrador que irá salvar o valor de X
+td:     mov R4, R5
+td1:    DEC R5
+        jnz td1
+        DEC R6
+        jnz td
+        pop R5
+        RET
+        
+
+
+        
+/* Função de ENVIAR COMANDO:
+AUTORES: VICTOR HUGO, JONAS JOSÉ E MATHEUS HENRIQUE
+ESSA FUNÇÃOÉ UMA FUNÇÃO DE ENVIAR COMANDOS PARA CONFIGURAR O DISPLAY:
+ELA RECEBE COMO PARÂMETROS R7(COMANDO)
+ELA RETORNA OS COMANDOS EM P5OUT E O SINAL DE ENVIAR COMANDOS EM BIT7 DE P3OUT*/        
+        
+        
+EnviaComando: 
+        push  R7
+        mov.b R7,   P5OUT   	; arquiva o valor do comando em Rn em P5OUT
+        bic.b #0x80,  P3OUT   	; reseta o bit P3.7 para RS=0, obtendo o comando
+        call #Envia
+        pop R7
+        RET
+        
+
+
+/* Função de ENVIAR DADOS:
+AUTORES: VICTOR HUGO, JONAS JOSÉ E MATHEUS HENRIQUE
+ESSA FUNÇÃO FUNCIONA COMO UMA FUNÇÃO DE ENVIAR DADOS PARA APARECEREM NO DISPLAY:
+ELA RECEBE COMO PARÂMETROS R7(DADO (ASCII))
+ELA RETORNA OS COMANDOS EM P5OUT E O SINAL DE ENVIAR DADOS EM BIT7 DE P3OUT*/   
+
+EnviaDado: 
+        push R7
+        mov.b R7,   P5OUT
+        bis.b #0x80,  P3OUT
+        call #Envia
+        pop R7
+        RET 
+        
+
+/* Função de ENVIAR STRING:
+AUTORES: VICTOR HUGO, JONAS JOSÉ E MATHEUS HENRIQUE
+ESSA FUNÇÃO FUNCIONA COMO UMA FUNÇÃO DE ENVIAR STRINGS :
+ELA RECEBE R10 (ENDEREÇO INICIAL DA STRING)
+ELA RETORNA EM P5OUT, BIT6 E BIT7 DE P3OUT*/    
+       
+       
+EnviaString:
+      PUSH      R7
+      PUSH      R10			
+LOOP: CMP.B     #0,0(R10)	;Vê se a string chegou ao fim
+      JZ        FIM		;Se sim, finaliza
+      MOV.B     @R10,R7         ;Move o conteúdo do local de R10 para R7
+      CALL      #EnviaDado	;Envia o dado, a letra da casa apontada por R10
+      INC       R10	 ;Incrementa R10, passando para a próxima casa do vetor
+      JMP       LOOP		;Retorna para a verificação de fim de string
+FIM:  POP       R10
+      POP       R7			
+      RET
+      
+/* Função de PISCAR LED:
+AUTORES: VICTOR HUGO, JONAS JOSÉ E MATHEUS HENRIQUE
+ESSA FUNÇÃO FUNCIONA COMO UMA FUNÇÃO DE OSCILAR UM BIT DE SAÍDA:
+ELA NÃO RECEBE PARÂMETROS
+ELA RETORNA NO BIT-1 DE P1OUT*/   
+
+piscaLED: 
+     
+     XOR.B    #BIT1, P1OUT
+     CALL     #delayled
+     RET
+
+/* Função de GERAR DELAY PARA O LED:
+AUTORES: VICTOR HUGO, JONAS JOSÉ E MATHEUS HENRIQUE
+ESSA FUNÇÃO FUNCIONA COMO UMA FUNÇÃO DE TIMER DE 0,5 SEGUNDOS:
+ELA NÃO RECEBE PARÂMETROS
+ELA NÃO RETORNA PARÂMETROS*/
+
+delayled:
+        push r4
+        push r6
+        mov  #100,    R4    ; inicia delay 0,5s
+        mov  #1252,   R6
+        call #Delay
+        POP R6
+        POP R4
+        RET
+
+/* Função de PULAR LINHA:
+AUTORES: VICTOR HUGO, JONAS JOSÉ E MATHEUS HENRIQUE
+ESSA FUNÇÃO FUNCIONA COMO UMA FUNÇÃO DE ENVIAR O COMANDO DE PULAR LINHA 
+(0XC0) AO DISPLAY:
+ELA NÃO RECEBE PARÂMETROS
+ELA NÃO RETORNA PARÂMETROS*/
+
+Pulalinha:
+       PUSH R7
+       MOV.B #0xC0, R7
+       CALL #EnviaComando
+       POP R7
+       RET
+       
+/* Função de LIMPAR O DISPLAY:
+AUTORES: VICTOR HUGO, JONAS JOSÉ E MATHEUS HENRIQUE
+ESSA FUNÇÃO FUNCIONA COMO UMA FUNÇÃO DE ENVIAR O COMANDO DE LIMPAR (0X01)
+AO DISPLAY:
+ELA NÃO RECEBE PARÂMETROS
+ELA NÃO RETORNA PARÂMETROS*/       
+limpa:
+      push r7
+      mov.b #0x01, R7			;Envia 0x01-Limpa Display
+      call #EnviaComando
+      pop r7
+      ret
+       
+  /* INTERRUPÇÃO DO TECLADO:
+AUTORES: VICTOR HUGO, JONAS JOSÉ E MATHEUS HENRIQUE
+ESSA FUNÇÃO FUNCIONA COMO UMA FUNÇÃO DE LER O TECLADO, GUARDAR OS DIGITOS LIDOS
+NA MEMÓRIA, VERIFICAR SE QUATRO DÍGITOS FORAM PRESSIONADOS, COMPARAR AS SENHAS,
+ACIONAR A SAÍDA (CASO A SENHA ESTEJA CORRETA), ALERTAR ERRO (CASO A SENHA ESTEJA
+INCORRETA)
+ELA RECEBE R11, P2IN, R13, R14, Frase3, Frase4 e Char1 COMO PARÂMETROS
+ELA RETORNA R11, R8, R12, R10, P1OUT, P3OUT e P2IFG*/     
+       
+
+teclado:
+       push r10
+       push r14
+       push r13
+       push r4
+       push r6
+       
+       
+       
+       mov.w #0xF9, R4			;Chama delay 20ms (debounce das chaves)
+       mov.b #20, R6
+       call #Delay
+             
+       
+       cmp.b #4, r11
+       jz    testasenha                 ;testa se 4 digitos já foram carregados
+       
+       BIC.B #(BIT3+BIT2+BIT1), P3OUT       ;lógica que verifica qual coluna foi
+       mov.b #0, r8                          ; pressionada e utilizando r8
+       BIT.B #BIT0, P2IN                     ; é possível determinar qual tecla
+       JNZ   COLUNA0                         ; foi pressionada
+       BIT.B #BIT1, P2IN
+       JNZ   COLUNA1
+       BIT.B #BIT2, P2IN
+       JNZ   COLUNA2
+       
+       BIS.B #BIT1, P3OUT
+       BIC.B #(BIT3+BIT2+BIT0), P3OUT
+       mov.b #1, R8
+       BIT.B #BIT0, P2IN
+       JNZ   COLUNA0
+       BIT.B #BIT1, P2IN
+       JNZ   COLUNA1
+       BIT.B #BIT2, P2IN
+       JNZ   COLUNA2
+       
+       BIS.B #BIT2, P3OUT
+       BIC.B #(BIT3+BIT1+BIT0), P3OUT
+       mov.b #2, R8
+       BIT.B #BIT0, P2IN
+       JNZ   COLUNA0
+       BIT.B #BIT1, P2IN
+       JNZ   COLUNA1
+       BIT.B #BIT2, P2IN
+       JNZ   COLUNA2
+       
+       BIS.B #BIT3, P3OUT
+       BIC.B #(BIT1+BIT2+BIT0), P3OUT
+       mov.b #3, R8
+       BIT.B #BIT0, P2IN
+       JNZ   COLUNA0
+       BIT.B #BIT1, P2IN
+       JNZ   COLUNA1
+       BIT.B #BIT2, P2IN
+       JNZ   COLUNA2
+       
+       COLUNA0:                      ;seção do código que pega o resultado 
+       CMP.B #0, R8                  ;da seção acima e utilizando r8
+       JZ set3                       ;define qual tecla foi pressionada
+       CMP.B #1, R8                  ;e envia para a próxima seção onde
+       JZ set6;                      ;o código ASCII das teclas é guardado
+       cmp.b #2, r8                  ;na memória RAM
+       jz set9
+       cmp.b #3, r8
+       jz setE
+       
+       COLUNA1:      
+       CMP.B #0, R8
+       JZ set2;
+       CMP.B #1, R8
+       JZ set5;
+       cmp.b #2, r8
+       jz set8
+       cmp.b #3, r8
+       jz set0
+       
+       COLUNA2:      
+       CMP.B #0, R8
+       JZ set1;
+       CMP.B #1, R8
+       JZ set4;
+       cmp.b #2, r8
+       jz set7
+       cmp.b #3, r8
+       jz setA
+       
+set0:
+     mov #0x30, 0(r12)               ;Seção que grava na RAM (apontada por R12)
+     jmp fimit                            ;o código ASCII de cada tecla
+set1:                                     ;para ser comparada com a string de 
+     mov #0x31, 0(r12)                    ;senha mestra
+     jmp fimit
+set2:
+     mov #0x32, 0(r12)
+     jmp fimit
+set3:
+     mov #0x33, 0(r12)
+     jmp fimit
+set4:
+     mov #0x34, 0(r12)
+     jmp fimit
+set5:
+     mov #0x35, 0(r12)
+     jmp fimit
+set6:
+     mov #0x36, 0(r12)
+     jmp fimit
+set7:
+     mov #0x37, 0(r12)
+     jmp fimit
+set8:
+     mov #0x38, 0(r12)
+     jmp fimit
+set9: 
+     mov #0x39, 0(r12)
+     jmp fimit
+setA:
+     mov #0x41, 0(r12)
+     jmp fimit
+setE:
+     mov #0x45, 0(r12)
+     jmp fimit
+       
+        
+ testasenha:                 ;seção do código que compara os valores
+    cmp.b @r14, 0(r13)       ;digitados (salvos na RAM e apontados por R13)
+    jnz  erro                ;com a senha mestra salva na RAM (apontada por r14)
+    inc r14                  ;caso erro seja detectado, o código é desviado
+    inc r13                  ;para a seção de erro, caso não seja detectado
+    cmp.b @r14, 0(r13)    ;o código entende como senha correta e libera a tranca 
+    jnz  erro
+    inc r14
+    inc r13
+    cmp.b @r14, 0(r13)
+    jnz  erro
+    inc r14
+    inc r13
+    cmp.b @r14, 0(r13)
+    jnz  erro
+
+    call #limpa                   ;seção que só é atingida caso nenhum erro seja
+    mov #Frase3, R10              ;detectado (senha correta), assim, ela escreve
+    call #EnviaString            ;"Senha correta" e abre a tranca por 4 segundos
+    bis.b #BIT0, P1OUT
+
+    mov  #800,    R4            ; inicia delay 4s
+    mov  #1252,   R6
+    call #Delay
+ 
+    BIC.B #BIT0, P1OUT              ;após a tranca fechar o sistema é levado ao
+    call #configCOD                 ;estado inicial e está pronto para
+    jmp fimit1                      ;ler quatro novos dígitos
+
+erro:                             ;seção que é atingida caso algum erro seja 
+    call #limpa                   ;detectado. Ela escreve que a senha foi errada
+    mov #Frase4, R10              ;por quatro segundos e em seguida reinicia   
+    call #EnviaString             ;o sistema
+
+    mov  #800,    R4              ; inicia delay 4s
+    mov  #1252,   R6
+    call #Delay
+    
+    call #configCOD
+    jmp fimit1 
+
+
+fimit:                             ;incrementa os ponteiros para que os valores
+     INC R12                       ;sejam armazenados corretamente e escreve
+     inc r11                       ;o * correspondente a cada tecla apertada
+     mov #Char1, r10
+     call  #EnviaString
+     
+fimit1:                                ;Seta novamente os bits de saída de p3out
+    BIS.B #(BIT0+BIT1+BIT2+BIT3), P3OUT
+    pop r6
+    pop r4
+    pop r13
+    pop r14
+    pop r10                      
+    bic.b #(BIT0+BIT1+BIT2), P2IFG      ;desabilita a flag de interrupção de p2
+    RETI
+       
+     END

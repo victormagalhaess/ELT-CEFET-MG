@@ -1,0 +1,9 @@
+END     OPCODE       LABEL         INSTR.         COMENT.
+
+0h       42h                        clr           ; 2º pulso de clock em nível 1
+1h       48h                        out           ; inicialização  e "reset"/ 3º e últimpo pulso de clock em nível 1       
+2h       47h                        inp
+3h       25h                        jz, 02h       ; lopp até a entrada ser 1
+4h       41h                        set          
+5h       48h                        out           ; setar e mandar pra saída
+8h       04h                        jp, 00h       ; 1º pulso de clock em nível 1
